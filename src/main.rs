@@ -14,13 +14,13 @@ async fn main() -> anyhow::Result<()> {
         .http_client(reqwest_client)
         .build();
 
-    match client
+    let player = client
         .get_player_puuid("asia", "loverboy6969", "sick7")
-        .await
-    {
-        Ok(data) => println!("Found PUUID: {}", data.puuid),
-        Err(e) => eprintln!("Error fetching PUUID: {}", e),
-    }
+        .await?;
 
+    let matchlist = player.get_matchlist().await?;
+    for entry in matchlist.history {
+        println!("{}", entry.match_id);
+    }
     Ok(())
 }

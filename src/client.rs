@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 pub struct NoApiKey;
 pub struct HasApiKey;
@@ -44,22 +44,22 @@ impl<'a, State> ClientBuilder<'a, State> {
 impl<'a> ClientBuilder<'a, HasApiKey> {
     pub fn build(self) -> Client {
         Client {
-            api_key: self.api_key.unwrap().to_owned(),
-            http_client: self.request_client,
+            inner: Arc::new(ClientInner {
+                api_key: self.api_key.unwrap().to_owned(),
+                http_client: self.request_client,
+            }),
         }
     }
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Player {
-    pub puuid: String,
-    pub game_name: Option<String>,
-    pub tag_line: Option<String>,
+#[derive(Clone)]
+pub struct Client {
+    inner: Arc<ClientInner>,
 }
 
-pub struct Client {
-    pub(crate) api_key: String,
-    pub(crate) http_client: reqwest::Client,
+pub struct ClientInner {
+    api_key: String,
+    http_client: reqwest::Client,
 }
 
 impl Client {
@@ -75,9 +75,10 @@ impl Client {
         );
 
         let response = self
+            .inner
             .http_client
             .get(&url)
-            .header("X-Riot-Token", self.api_key.clone())
+            .header("X-Riot-Token", self.inner.api_key.clone())
             .send()
             .await?;
 
@@ -87,7 +88,74 @@ impl Client {
             return Err(anyhow::anyhow!("API Error {}: {}", status, error_body));
         }
 
-        let account_data = response.json::<Player>().await?;
-        Ok(account_data)
+        let data = response.json::<PlayerDto>().await?;
+
+        Ok(Player {
+            client: self.clone(),
+            puuid: data.puuid,
+            game_name: data.game_name,
+            tag_line: data.tag_line,
+            region: region.to_owned(),
+        })
     }
+}
+
+pub struct Player {
+    client: Client,
+    pub puuid: String,
+    pub game_name: String,
+    pub tag_line: String,
+    region: String,
+}
+
+impl Player {
+    pub async fn get_matchlist(&self) -> Result<MatchlistDto, anyhow::Error> {
+        let url = format!(
+            "https://{}.api.riotgames.com/val/match/v1/matchlists/by-puuid/{}",
+            self.region, self.puuid
+        );
+
+        let response = self
+            .client
+            .inner
+            .http_client
+            .get(&url)
+            .header("X-Riot-Token", &self.client.inner.api_key)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response.text().await?;
+            return Err(anyhow::anyhow!("API Error {}: {}", status, error_body));
+        }
+
+        let matchlist = response.json::<MatchlistDto>().await?;
+        Ok(matchlist)
+    }
+}
+
+#[derive(Deserialize)]
+struct PlayerDto {
+    puuid: String,
+    #[serde(rename = "gameName")]
+    game_name: String,
+    #[serde(rename = "tagLine")]
+    tag_line: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MatchlistDto {
+    pub puuid: String,
+    pub history: Vec<MatchlistEntryDto>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MatchlistEntryDto {
+    #[serde(rename = "matchId")]
+    pub match_id: String,
+    #[serde(rename = "gameStartTimeMillis")]
+    pub game_start_time_millis: i64,
+    #[serde(rename = "queueId")]
+    pub queue_id: String,
 }
