@@ -1,5 +1,5 @@
 use dotenvy::dotenv;
-use skyeval::ClientBuilder;
+use skyeval::{AccountCluster, Builder};
 use std::env;
 
 #[tokio::main]
@@ -9,13 +9,11 @@ async fn main() -> anyhow::Result<()> {
 
     let api_key = env::var("API_KEY")?;
 
-    let client = ClientBuilder::new()
-        .api_key(&api_key)
-        .http_client(reqwest_client)
-        .build();
-
+    let client = Builder::new(api_key)
+        .set_http_client(reqwest_client)
+        .build()?;
     let player = client
-        .get_player_puuid("asia", "loverboy6969", "sick7")
+        .get_player_puuid(AccountCluster::Asia, "loverboy6969", "sick7")
         .await?;
 
     let matchlist = player.get_matchlist().await?;
