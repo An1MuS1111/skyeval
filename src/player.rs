@@ -1,5 +1,4 @@
-use crate::AccountCluster;
-use crate::client::Client;
+use crate::{AccountCluster, Client};
 use serde::Deserialize;
 
 pub struct Player {
